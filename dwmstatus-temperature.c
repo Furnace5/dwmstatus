@@ -1,5 +1,5 @@
 /*
- * gettemperature("/sys/class/hwmon/hwmon0/device", "temp1_input");
+ *  gettemperature("/sys/class/hwmon/hwmon0/device", "temp1_input");
  */
 
 char *

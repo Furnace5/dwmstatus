@@ -185,7 +185,11 @@ main(void)
 	char *tmar;
 	char *tmutc;
 	char *tmbln;
-	char *t0, *t1, *t2;
+	char *t0, *t1, *t2, *t3;
+	char *t_final;
+	char *t_symbol;
+	char *bat_symbol;
+
 
 	if (!(dpy = XOpenDisplay(NULL))) {
 		fprintf(stderr, "dwmstatus: cannot open display.\n");
@@ -201,10 +205,33 @@ main(void)
 		tmbln = mktimes("KW %W %a %d %b %H:%M %Z %Y", tzberlin);
 		t0 = gettemperature("/sys/devices/virtual/hwmon/hwmon5", "temp1_input");
 		t1 = gettemperature("/sys/devices/virtual/hwmon/hwmon5", "temp2_input");
-		t2 = gettemperature("/sys/devices/virtual/hwmon/hwmon5", "temp4_input");
+		t2 = gettemperature("/sys/devices/virtual/hwmon/hwmon5", "temp3_input");
+		t3 = gettemperature("/sys/devices/virtual/hwmon/hwmon5", "temp4_input");
+		t_symbol = "";
 
-		status = smprintf("T:%s|%s|%s B:%s|%s A:%s",
-			  	   t0, t1, t2, bat, bat1, tmar     
+/* choose the hottest core to display*/
+
+		if ((t0>t1) && (t0>t2) && (t0>t3))
+				t_final = t0;
+		else if ((t1>t0) && (t1>t2) && (t1>t3))
+				t_final = t1;
+		else if ((t2>t0) && (t2>t1) && (t2>t3))
+				t_final = t2;
+		else t_final = t3;
+
+/* choose which battery symbol to use */
+		if (*bat<20) 
+			bat_symbol = "";
+		else if ((*bat>19) && (*bat<40))
+			bat_symbol = "";
+		else if ((*bat>39) && (*bat<60))
+			bat_symbol = "";
+		else if ((*bat>59) && (*bat<80))
+			bat_symbol = "";
+		else bat_symbol = "";
+
+		status = smprintf("%s%s   %s%s%s   %s",
+			t_symbol, t_final, bat_symbol,  bat, bat1, tmar     
 				);
 		setstatus(status);
 
@@ -218,6 +245,7 @@ main(void)
 		free(tmutc);
 		free(tmbln);
 		free(status);
+		free(t_final);
 	}
 
 	XCloseDisplay(dpy);
