@@ -131,9 +131,9 @@ getbattery(char *base)
 	}
 	free(co);
 
-	co = readfile(base, "charge_full_design");
+	co = readfile(base, "charge_full");
 	if (co == NULL) {
-		co = readfile(base, "energy_full_design");
+		co = readfile(base, "energy_full");
 		if (co == NULL)
 			return smprintf("");
 	}
@@ -175,6 +175,100 @@ gettemperature(char *base, char *sensor)
 	return smprintf("%02.0f°C", atof(co) / 1000);
 }
 
+
+/* network speed*/
+int
+parse_netdev(unsigned long long int *receivedabs, unsigned long long int *sentabs)
+{
+	char buf[255];
+	char *datastart;
+	static int bufsize;
+	int rval;
+	FILE *devfd;
+	unsigned long long int receivedacc, sentacc;
+
+	bufsize = 255;
+	devfd = fopen("/proc/net/dev", "r");
+	rval = 1;
+
+	// Ignore the first two lines of the file
+	fgets(buf, bufsize, devfd);
+	fgets(buf, bufsize, devfd);
+
+	while (fgets(buf, bufsize, devfd)) {
+	    if ((datastart = strstr(buf, "lo:")) == NULL) {
+		datastart = strstr(buf, ":");
+
+		// With thanks to the conky project at http://conky.sourceforge.net/
+		sscanf(datastart + 1, "%llu  %*d     %*d  %*d  %*d  %*d   %*d        %*d       %llu",\
+		       &receivedacc, &sentacc);
+		*receivedabs += receivedacc;
+		*sentabs += sentacc;
+		rval = 0;
+	    }
+	}
+
+	fclose(devfd);
+	return rval;
+}
+
+void
+calculate_speed(char *speedstr, unsigned long long int newval, unsigned long long int oldval)
+{
+	double speed;
+	speed = (newval - oldval) / 1024.0;
+	if (speed > 1024.0) {
+	    speed /= 1024.0;
+	    sprintf(speedstr, "%.3f MB/s", speed);
+	} else {
+	    sprintf(speedstr, "%.2f KB/s", speed);
+	}
+}
+
+char *
+get_netusage(unsigned long long int *rec, unsigned long long int *sent)
+{
+	unsigned long long int newrec, newsent;
+	newrec = newsent = 0;
+	char downspeedstr[15], upspeedstr[15];
+	static char retstr[42];
+	int retval;
+
+	retval = parse_netdev(&newrec, &newsent);
+	if (retval) {
+	    fprintf(stdout, "Error when parsing /proc/net/dev file.\n");
+	    exit(1);
+	}
+
+	calculate_speed(downspeedstr, newrec, *rec);
+	calculate_speed(upspeedstr, newsent, *sent);
+
+	sprintf(retstr, """%s """"%s", downspeedstr, upspeedstr);
+
+	*rec = newrec;
+	*sent = newsent;
+	return retstr;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 int
 main(void)
 {
@@ -185,18 +279,19 @@ main(void)
 	char *tmar;
 	char *tmutc;
 	char *tmbln;
-	char *t0, *t1, *t2, *t3;
-	char *t_final;
-	char *t_symbol;
-	char *bat_symbol;
-
+	char *t0;
+	char *tsymbol;
+	char *batsymbol;
+	char *netstats;
+	static unsigned long long int rec, sent;
+	int batrange;
 
 	if (!(dpy = XOpenDisplay(NULL))) {
 		fprintf(stderr, "dwmstatus: cannot open display.\n");
 		return 1;
 	}
-
-	for (;;sleep(60)) {
+parse_netdev(&rec, &sent);
+	for (;;sleep(1)) {
 		avgs = loadavg();
 		bat = getbattery("/sys/class/power_supply/BAT0");
 		bat1 = getbattery("/sys/class/power_supply/BAT1");
@@ -204,40 +299,29 @@ main(void)
 		tmutc = mktimes("%H:%M", tzutc);
 		tmbln = mktimes("KW %W %a %d %b %H:%M %Z %Y", tzberlin);
 		t0 = gettemperature("/sys/devices/virtual/hwmon/hwmon5", "temp1_input");
-		t1 = gettemperature("/sys/devices/virtual/hwmon/hwmon5", "temp2_input");
-		t2 = gettemperature("/sys/devices/virtual/hwmon/hwmon5", "temp3_input");
-		t3 = gettemperature("/sys/devices/virtual/hwmon/hwmon5", "temp4_input");
-		t_symbol = "";
-
-/* choose the hottest core to display*/
-
-		if ((t0>t1) && (t0>t2) && (t0>t3))
-				t_final = t0;
-		else if ((t1>t0) && (t1>t2) && (t1>t3))
-				t_final = t1;
-		else if ((t2>t0) && (t2>t1) && (t2>t3))
-				t_final = t2;
-		else t_final = t3;
+		tsymbol = "";
+		netstats = get_netusage(&rec, &sent);
+		batrange = atoi(bat);
 
 /* choose which battery symbol to use */
-		if (*bat<20) 
-			bat_symbol = "";
-		else if ((*bat>19) && (*bat<40))
-			bat_symbol = "";
-		else if ((*bat>39) && (*bat<60))
-			bat_symbol = "";
-		else if ((*bat>59) && (*bat<80))
-			bat_symbol = "";
-		else bat_symbol = "";
+		if (batrange > 80) {
+		batsymbol = "";
+}		else if ((60 < batrange) && (batrange < 81)){
+			batsymbol = "";
+}		else if ((40 < batrange) && (batrange < 61)){
+			batsymbol = "";
+}		else if ((20 < batrange) && (batrange < 41)){
+			batsymbol = "";
+}		else {
+			batsymbol = "";
+}
 
-		status = smprintf("%s%s   %s%s%s   %s",
-			t_symbol, t_final, bat_symbol,  bat, bat1, tmar     
+		status = smprintf("%s   %s%s   %s%s%s   %s",
+		     	   netstats,  tsymbol, t0, batsymbol,  bat, bat1, tmar     
 				);
 		setstatus(status);
 
 		free(t0);
-		free(t1);
-		free(t2);
 		free(avgs);
 		free(bat);
 		free(bat1);
@@ -245,7 +329,6 @@ main(void)
 		free(tmutc);
 		free(tmbln);
 		free(status);
-		free(t_final);
 	}
 
 	XCloseDisplay(dpy);
